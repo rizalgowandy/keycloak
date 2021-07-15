@@ -18,6 +18,7 @@ package org.keycloak.services;
 
 import org.jboss.logging.Logger;
 import org.keycloak.Config;
+import org.keycloak.common.Profile;
 import org.keycloak.common.util.MultivaluedHashMap;
 import org.keycloak.component.ComponentFactoryProvider;
 import org.keycloak.component.ComponentFactoryProviderFactory;
@@ -96,7 +97,12 @@ public class DefaultKeycloakSessionFactory implements KeycloakSessionFactory, Pr
         serverStartupTimestamp = System.currentTimeMillis();
 
         ProviderManager pm = new ProviderManager(KeycloakDeploymentInfo.create().services(), getClass().getClassLoader(), Config.scope().getArray("providers"));
-        spis.addAll(pm.loadSpis());
+        for (Spi spi : pm.loadSpis()) {
+            if (spi.isEnabled()) {
+                spis.add(spi);
+            }
+        }
+
         factoriesMap = loadFactories(pm);
 
         synchronized (ProviderManagerRegistry.SINGLETON) {
@@ -164,6 +170,8 @@ public class DefaultKeycloakSessionFactory implements KeycloakSessionFactory, Pr
 
         }
         factoriesMap = copy;
+        // need to update the default provider map
+        checkProvider();
         boolean cfChanged = false;
         for (ProviderFactory factory : undeployed) {
             invalidate(ObjectType.PROVIDER_FACTORY, factory.getClass());
@@ -216,11 +224,14 @@ public class DefaultKeycloakSessionFactory implements KeycloakSessionFactory, Pr
     }
 
     protected void checkProvider() {
+        // make sure to recreated the default providers map
+        provider.clear();
+
         for (Spi spi : spis) {
             String defaultProvider = Config.getProvider(spi.getName());
             if (defaultProvider != null) {
                 if (getProviderFactory(spi.getProviderClass(), defaultProvider) == null) {
-                    throw new RuntimeException("Failed to find provider " + provider + " for " + spi.getName());
+                    throw new RuntimeException("Failed to find provider " + defaultProvider + " for " + spi.getName());
                 }
             } else {
                 Map<String, ProviderFactory> factories = factoriesMap.get(spi.getProviderClass());
